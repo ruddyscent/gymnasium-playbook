@@ -1,9 +1,35 @@
 """The learning algorithm, separate from command-line and file handling."""
 
 from dataclasses import dataclass
+from typing import TypedDict, cast
 
 import gymnasium as gym
 import numpy as np
+from numpy.typing import NDArray
+
+
+type QTable = NDArray[np.float64]
+
+TrainingEpisode = TypedDict("TrainingEpisode", {
+    "episode": int,
+    "epsilon": float,
+    "return": float,
+    "length": int,
+    "success": int,
+    "terminated": bool,
+    "truncated": bool,
+})
+
+
+class EvaluationResult(TypedDict):
+    episodes: int
+    seed: int
+    max_episode_steps: int
+    successes: int
+    success_rate: float
+    mean_episode_length: float
+    mean_successful_episode_length: float | None
+    truncations: int
 
 
 @dataclass(frozen=True)
@@ -17,7 +43,7 @@ class TrainingConfig:
     epsilon_decay: float = 0.999
     max_episode_steps: int = 100
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.seed < 0 or self.episodes < 1 or self.max_episode_steps < 1:
             raise ValueError("Seed must be nonnegative; episode counts and limits positive")
         if not 0 < self.learning_rate <= 1 or not 0 <= self.discount <= 1:
@@ -28,7 +54,7 @@ class TrainingConfig:
             raise ValueError("Require 0 < epsilon_decay <= 1")
 
 
-def make_env(max_episode_steps=100):
+def make_env(max_episode_steps: int = 100) -> gym.Env[int, int]:
     return gym.make(
         "FrozenLake-v1",
         map_name="4x4",
@@ -37,7 +63,9 @@ def make_env(max_episode_steps=100):
     )
 
 
-def epsilon_greedy(q_values, epsilon, rng):
+def epsilon_greedy(
+    q_values: QTable, epsilon: float, rng: np.random.Generator
+) -> int:
     """Explore uniformly; otherwise break ties uniformly among the best actions."""
     if rng.random() < epsilon:
         return int(rng.integers(len(q_values)))
@@ -46,7 +74,9 @@ def epsilon_greedy(q_values, epsilon, rng):
     return int(rng.choice(best_actions))
 
 
-def q_learning_target(reward, next_value, terminated, discount):
+def q_learning_target(
+    reward: float, next_value: float, terminated: bool, discount: float
+) -> float:
     """Bootstrap unless the underlying task ended, even at a time limit."""
     if terminated:
         return float(reward)
@@ -54,22 +84,32 @@ def q_learning_target(reward, next_value, terminated, discount):
 
 
 def update_q_value(
-    q_table, state, action, reward, next_state, terminated, learning_rate, discount
-):
+    q_table: QTable,
+    state: int,
+    action: int,
+    reward: float,
+    next_state: int,
+    terminated: bool,
+    learning_rate: float,
+    discount: float,
+) -> None:
     target = q_learning_target(
-        reward, q_table[next_state].max(), terminated, discount
+        reward, float(q_table[next_state].max()), terminated, discount
     )
     prediction = q_table[state, action]
     q_table[state, action] += learning_rate * (target - prediction)
 
 
-def train(config):
+def train(config: TrainingConfig) -> tuple[QTable, list[TrainingEpisode]]:
     """Return the learned Q-table and one record per training episode."""
     rng = np.random.default_rng(config.seed)
-    history = []
+    history: list[TrainingEpisode] = []
 
     with make_env(config.max_episode_steps) as env:
-        q_table = np.zeros((env.observation_space.n, env.action_space.n))
+        q_table: QTable = np.zeros((
+            cast(gym.spaces.Discrete, env.observation_space).n,
+            cast(gym.spaces.Discrete, env.action_space).n,
+        ), dtype=np.float64)
         for episode in range(config.episodes):
             state, _ = env.reset(seed=config.seed if episode == 0 else None)
             epsilon = max(
@@ -82,7 +122,7 @@ def train(config):
                 action = epsilon_greedy(q_table[state], epsilon, rng)
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 update_q_value(
-                    q_table, state, action, reward, next_state, terminated,
+                    q_table, state, action, float(reward), next_state, terminated,
                     config.learning_rate, config.discount,
                 )
                 episode_return += float(reward)
@@ -103,7 +143,12 @@ def train(config):
     return q_table, history
 
 
-def evaluate(q_table, episodes=1_000, seed=10_000, max_episode_steps=100):
+def evaluate(
+    q_table: QTable | None,
+    episodes: int = 1_000,
+    seed: int = 10_000,
+    max_episode_steps: int = 100,
+) -> EvaluationResult:
     """Evaluate a fixed greedy table, or a uniform random policy when None."""
     if episodes < 1 or seed < 0 or max_episode_steps < 1:
         raise ValueError("Seed must be nonnegative; episode counts and limits positive")
@@ -122,14 +167,14 @@ def evaluate(q_table, episodes=1_000, seed=10_000, max_episode_steps=100):
             length = 0
             while True:
                 if q_table is None:
-                    action = int(rng.integers(env.action_space.n))
+                    action = int(rng.integers(int(cast(gym.spaces.Discrete, env.action_space).n)))
                 else:
                     # A fixed tie rule makes greedy evaluation deterministic.
                     action = int(np.argmax(q_table[state]))
                 state, reward, terminated, truncated, _ = env.step(action)
                 length += 1
                 if terminated or truncated:
-                    success = reward > 0
+                    success = float(reward) > 0
                     successes += int(success)
                     successful_steps += length if success else 0
                     truncations += int(truncated)

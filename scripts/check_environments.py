@@ -2,11 +2,12 @@
 
 import argparse
 import math
+from typing import Any
 
 import gymnasium as gym
 
 
-def check_environment(env_id, **kwargs):
+def check_environment(env_id: str, **kwargs: Any) -> None:
     with gym.make(env_id, **kwargs) as env:
         observation, _ = env.reset(seed=42)
         env.action_space.seed(42)
@@ -29,7 +30,7 @@ def check_environment(env_id, **kwargs):
     print(f"PASS {env_id}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="Check all optional families")
     for family in ("box2d", "mujoco", "atari"):

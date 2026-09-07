@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields
 import json
 from pathlib import Path
@@ -10,22 +11,24 @@ import platform
 import gymnasium as gym
 import numpy as np
 
-from .q_learning import TrainingConfig, evaluate, train
+from .q_learning import (
+    EvaluationResult, QTable, TrainingConfig, TrainingEpisode, evaluate, train,
+)
 
 
-def write_json(path, data):
+def write_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def write_csv(path, rows):
+def write_csv(path: Path, rows: Sequence[Mapping[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
 
 
-def versions():
+def versions() -> dict[str, str]:
     return {
         "python": platform.python_version(),
         "gymnasium": gym.__version__,
@@ -35,7 +38,12 @@ def versions():
     }
 
 
-def save_training(output_dir, config, q_table, history):
+def save_training(
+    output_dir: Path,
+    config: TrainingConfig,
+    q_table: QTable,
+    history: list[TrainingEpisode],
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "q_table.npy", q_table, allow_pickle=False)
     write_csv(output_dir / "training.csv", history)
@@ -48,13 +56,13 @@ def save_training(output_dir, config, q_table, history):
     })
 
 
-def training_config(args, seed):
+def training_config(args: argparse.Namespace, seed: int) -> TrainingConfig:
     options = {field.name: getattr(args, field.name) for field in fields(TrainingConfig)
                if field.name != "seed"}
     return TrainingConfig(seed=seed, **options)
 
 
-def add_training_options(parser):
+def add_training_options(parser: argparse.ArgumentParser) -> None:
     defaults = TrainingConfig()
     parser.add_argument("--episodes", type=int, default=defaults.episodes)
     parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
@@ -65,20 +73,20 @@ def add_training_options(parser):
     parser.add_argument("--max-episode-steps", type=int, default=defaults.max_episode_steps)
 
 
-def benchmark(args):
+def benchmark(args: argparse.Namespace) -> None:
     if len(set(args.seeds)) != len(args.seeds):
         raise ValueError("Benchmark seeds must be distinct")
     if args.eval_episodes < 1 or args.eval_seed < 0:
         raise ValueError("Evaluation episodes must be positive and seed nonnegative")
     # Validate all configurations before starting a potentially long experiment.
     configs = [training_config(args, seed) for seed in args.seeds]
-    rows = []
+    rows: list[dict[str, object]] = []
     for config in configs:
         q_table, history = train(config)
         output_dir = args.output_dir / f"seed-{config.seed}"
         save_training(output_dir, config, q_table, history)
         evaluation_seed = args.eval_seed + config.seed
-        results = {}
+        results: dict[str, EvaluationResult] = {}
         for policy, table in (("q_learning", q_table), ("random", None)):
             result = evaluate(
                 table, args.eval_episodes, evaluation_seed, config.max_episode_steps
@@ -100,7 +108,7 @@ def benchmark(args):
     })
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
