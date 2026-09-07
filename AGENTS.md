@@ -4,6 +4,8 @@
 
 - Make core equations and algorithm steps explicit. Avoid unnecessary abstraction
   and dependencies; preserve the repository's educational focus.
+- Write mathematical formulas in LaTeX in documentation and explanations. In
+  Markdown, use `$...$` for inline math and `$$...$$` for display equations.
 - Place implementations under `environments/<category>/<environment>/`. Never
   create a local `gymnasium` package that shadows the installed library.
 - Separate learning, read-only evaluation, and visualization.
