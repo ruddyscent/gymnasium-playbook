@@ -45,6 +45,11 @@
 
 - Read the issue and discussion before implementing it. Use a dedicated working
   branch and worktree, preserving unrelated user changes.
+- Set appropriate labels when creating any issue or PR. Inspect and reuse the
+  repository's existing labels to describe the work's type and scope. When
+  starting work on an existing issue or PR, add missing labels while preserving
+  unrelated labels. Verify that the labels were saved after creation or updates,
+  and revise them if the scope changes.
 - When work begins, register the working branch in the issue's GitHub Development
   section and verify that the connection was saved. Link the implementation PR
   there as well and verify it. A branch name in prose or a PR mentioning the
