@@ -135,6 +135,13 @@ def main() -> None:
         "--output-dir", type=Path, default=Path("runs/frozen_lake/benchmark")
     )
 
+    viewer = commands.add_parser("watch", help="Replay a policy in a window until closed")
+    watched_policy = viewer.add_mutually_exclusive_group(required=True)
+    watched_policy.add_argument("--q-table", type=Path)
+    watched_policy.add_argument("--random", action="store_true")
+    viewer.add_argument("--seed", type=int, default=10_000)
+    viewer.add_argument("--fps", type=int, default=2, help="Actions per second (1-30)")
+
     args = parser.parse_args()
     try:
         if args.command == "train":
@@ -153,6 +160,11 @@ def main() -> None:
             if args.output:
                 write_json(args.output, result)
             print(json.dumps(result, indent=2, allow_nan=False))
+        elif args.command == "watch":
+            from .viewer import watch
+
+            table = None if args.random else np.load(args.q_table, allow_pickle=False)
+            watch(table, args.seed, args.fps)
         else:
             benchmark(args)
     except (ValueError, OSError) as error:

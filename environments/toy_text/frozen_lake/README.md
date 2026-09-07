@@ -46,6 +46,14 @@ By default, all generated files are under the ignored `runs/frozen_lake/` direct
 
 Reusing an output directory overwrites that run's files. Use a different `--output-dir`, such as `runs/frozen_lake/slow-decay`, when comparing experiments. Keep custom output paths under `runs/` or another ignored artifact directory. The CSV files can later provide data for blog figures without adding a plotting dependency to the learning example.
 
+## Watch the policy
+
+```sh
+uv run --locked python -m environments.toy_text.frozen_lake watch --q-table runs/frozen_lake/seed-0/q_table.npy
+```
+
+The window replays the greedy policy at two actions per second, pauses at the end, and repeats. Close the window or press Escape to exit. Use `--fps 4` to change playback speed, or replace `--q-table ...` with `--random` to watch random play. A desktop display is required; this viewer does not modify the Q-table.
+
 ## Tests
 
 ```sh
