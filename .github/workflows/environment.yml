@@ -1,0 +1,35 @@
+name: Environment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Environment (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14]
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      UV_NO_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.10"
+      - name: Install pinned Python
+        run: uv python install
+      - name: Check base environment
+        run: uv run --locked python scripts/check_environments.py
+      - name: Test FrozenLake learning semantics
+        run: uv run --locked python -m unittest discover -s tests -v
+      - name: Check all environment families
+        run: uv run --locked --all-extras python scripts/check_environments.py --all
