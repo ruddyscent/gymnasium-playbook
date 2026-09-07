@@ -440,6 +440,40 @@ videos/
 wandb/
 
 # Model files
+# PyTorch and Hugging Face
 *.pt
 *.pth
+*.safetensors
+pytorch_model*.bin
+
+# TensorFlow and Keras
 *.ckpt
+*.ckpt.index
+*.ckpt.data-*
+*.ckpt.meta
+*.keras
+*.h5
+*.hdf5
+saved_model.pb
+saved_model.pbtxt
+keras_metadata.pb
+variables.index
+variables.data-*
+*.tflite
+
+# ONNX
+*.onnx
+*.onnx.data
+
+# GGML and GGUF
+*.ggml
+*.gguf
+
+# TensorRT
+*.engine
+*.plan
+
+# Core ML
+*.mlmodel
+*.mlpackage/
+*.mlmodelc/
