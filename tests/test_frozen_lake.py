@@ -1,12 +1,14 @@
 """Regression tests for the learning semantics, not a performance benchmark."""
 
 import unittest
+from unittest.mock import patch
 from typing import Any
 
 import numpy as np
 
 from environments.toy_text.frozen_lake.q_learning import (
     TrainingConfig,
+    TrainingEpisode,
     epsilon_greedy,
     evaluate,
     make_env,
@@ -89,6 +91,35 @@ class LearningTests(unittest.TestCase):
         self.assertGreater(first.max(), 0.0)
         np.testing.assert_array_equal(first, second)
         self.assertEqual(first_history, second_history)
+
+    def test_episode_sink_receives_copies_without_changing_learning(self) -> None:
+        config = TrainingConfig(seed=0, episodes=1_000)
+        expected, expected_history = train(config)
+        observed: list[TrainingEpisode] = []
+
+        def mutate_copy(row: TrainingEpisode) -> None:
+            observed.append(row.copy())
+            row["return"] = -100.0
+            row["episode"] = -1
+
+        actual, history = train(config, episode_sink=mutate_copy)
+        np.testing.assert_array_equal(actual, expected)
+        self.assertEqual(history, expected_history)
+        self.assertEqual(observed, history)
+
+    def test_episode_sink_preserves_goal_and_time_limit_flags(self) -> None:
+        observed: list[TrainingEpisode] = []
+        config = TrainingConfig(episodes=1, max_episode_steps=6)
+        with patch(
+            "environments.toy_text.frozen_lake.q_learning.epsilon_greedy",
+            side_effect=[1, 1, 2, 1, 2, 2],
+        ):
+            _, history = train(config, episode_sink=observed.append)
+        self.assertEqual(observed, history)
+        self.assertEqual(observed[0]["episode"], 1)
+        self.assertTrue(observed[0]["terminated"])
+        self.assertTrue(observed[0]["truncated"])
+        self.assertEqual(observed[0]["success"], 1)
 
     def test_evaluation_is_read_only_and_reports_success_and_length(self) -> None:
         # A known six-step policy tests evaluation independently of learning.

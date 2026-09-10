@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022, macos-14]
+        os: [ubuntu-24.04, windows-2022, macos-15]
     env:
       SDL_VIDEODRIVER: dummy
       SDL_AUDIODRIVER: dummy
@@ -31,5 +31,9 @@ jobs:
         run: uv run --locked python scripts/check_environments.py
       - name: Test FrozenLake learning semantics
         run: uv run --locked python -m unittest discover -s tests -v
+      - name: Test TensorBoard event logging
+        run: uv run --locked --extra tensorboard python -m unittest discover -s tests -v
+      - name: Check FrozenLake types
+        run: uv run --locked --group typecheck --extra tensorboard python -m mypy environments/toy_text/frozen_lake tests
       - name: Check all environment families
         run: uv run --locked --all-extras python scripts/check_environments.py --all

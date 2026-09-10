@@ -13,6 +13,14 @@ dependencies = [
 box2d = ["gymnasium[box2d]==1.3.0"]
 mujoco = ["gymnasium[mujoco]==1.3.0", "mujoco==3.12.0"]
 atari = ["gymnasium[atari]==1.3.0", "ale-py==0.12.1"]
+tensorboard = ["tensorboard==2.21.0"]
+
+[dependency-groups]
+typecheck = ["mypy==2.3.1"]
+
+[[tool.mypy.overrides]]
+module = ["tensorboard.*"]
+ignore_missing_imports = true
 
 [tool.uv]
 package = false

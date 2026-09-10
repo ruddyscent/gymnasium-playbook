@@ -5,6 +5,7 @@ import csv
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields
 import json
+from importlib.metadata import version
 from pathlib import Path
 import platform
 
@@ -14,6 +15,7 @@ import numpy as np
 from .q_learning import (
     EvaluationResult, QTable, TrainingConfig, TrainingEpisode, evaluate, train,
 )
+from .tensorboard_logging import episode_writer, reserve_run
 
 
 def write_json(path: Path, data: object) -> None:
@@ -73,6 +75,57 @@ def add_training_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-episode-steps", type=int, default=defaults.max_episode_steps)
 
 
+def add_tensorboard_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--tensorboard", action="store_true", help="Write TensorBoard events")
+    parser.add_argument(
+        "--tensorboard-log-dir", type=Path,
+        help="Event directory (default: runs/frozen_lake/tensorboard; requires --tensorboard)",
+    )
+    parser.add_argument(
+        "--tensorboard-run-name",
+        help="Fresh portable run name (default: UUID; requires --tensorboard)",
+    )
+
+
+def tensorboard_root(args: argparse.Namespace) -> Path | None:
+    if not args.tensorboard:
+        if args.tensorboard_log_dir is not None or args.tensorboard_run_name is not None:
+            raise ValueError("TensorBoard directory and run name options require --tensorboard")
+        return None
+    return reserve_run(
+        args.tensorboard_log_dir or Path("runs/frozen_lake/tensorboard"),
+        args.command, args.tensorboard_run_name,
+    )
+
+
+def run_training(
+    config: TrainingConfig, args: argparse.Namespace, log_root: Path | None,
+) -> tuple[QTable, list[TrainingEpisode]]:
+    if log_root is None:
+        return train(config)
+    metadata: dict[str, object] = {
+        "command": args.command,
+        "run_name": log_root.name,
+        "environment": {
+            "id": "FrozenLake-v1", "map_name": "4x4", "is_slippery": False,
+            "max_episode_steps": config.max_episode_steps,
+        },
+        "training": asdict(config),
+        "versions": {**versions(), "tensorboard": version("tensorboard")},
+    }
+    if args.command == "benchmark":
+        metadata["evaluation"] = {
+            "episodes": args.eval_episodes,
+            "base_seed": args.eval_seed,
+            "seed": args.eval_seed + config.seed,
+            "max_episode_steps": config.max_episode_steps,
+            "policies": ["q_learning", "random"],
+        }
+        metadata["benchmark_seeds"] = args.seeds
+    with episode_writer(log_root / f"seed-{config.seed}", metadata) as sink:
+        return train(config, episode_sink=sink)
+
+
 def benchmark(args: argparse.Namespace) -> None:
     if len(set(args.seeds)) != len(args.seeds):
         raise ValueError("Benchmark seeds must be distinct")
@@ -80,9 +133,10 @@ def benchmark(args: argparse.Namespace) -> None:
         raise ValueError("Evaluation episodes must be positive and seed nonnegative")
     # Validate all configurations before starting a potentially long experiment.
     configs = [training_config(args, seed) for seed in args.seeds]
+    log_root = tensorboard_root(args)
     rows: list[dict[str, object]] = []
     for config in configs:
-        q_table, history = train(config)
+        q_table, history = run_training(config, args, log_root)
         output_dir = args.output_dir / f"seed-{config.seed}"
         save_training(output_dir, config, q_table, history)
         evaluation_seed = args.eval_seed + config.seed
@@ -114,6 +168,7 @@ def main() -> None:
 
     training = commands.add_parser("train", help="Learn and save a Q-table")
     add_training_options(training)
+    add_tensorboard_options(training)
     training.add_argument("--seed", type=int, default=0)
     training.add_argument("--output-dir", type=Path)
 
@@ -128,6 +183,7 @@ def main() -> None:
 
     comparison = commands.add_parser("benchmark", help="Compare learning with random play")
     add_training_options(comparison)
+    add_tensorboard_options(comparison)
     comparison.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     comparison.add_argument("--eval-episodes", type=int, default=1_000)
     comparison.add_argument("--eval-seed", type=int, default=10_000)
@@ -146,7 +202,7 @@ def main() -> None:
     try:
         if args.command == "train":
             config = training_config(args, args.seed)
-            q_table, history = train(config)
+            q_table, history = run_training(config, args, tensorboard_root(args))
             output_dir = args.output_dir or Path(f"runs/frozen_lake/seed-{args.seed}")
             save_training(output_dir, config, q_table, history)
             print(f"Saved Q-table and training records to {output_dir}")
