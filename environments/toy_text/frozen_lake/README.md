@@ -46,6 +46,52 @@ By default, all generated files are under the ignored `runs/frozen_lake/` direct
 
 Reusing an output directory overwrites that run's files. Use a different `--output-dir`, such as `runs/frozen_lake/slow-decay`, when comparing experiments. Keep custom output paths under `runs/` or another ignored artifact directory. The CSV files can later provide data for blog figures without adding a plotting dependency to the learning example.
 
+## Optional TensorBoard logging
+
+Logging is disabled by default. The optional TensorBoard dependency writes and displays events without installing TensorFlow or PyTorch:
+
+```sh
+uv sync --locked --extra tensorboard
+uv run --locked --extra tensorboard python -m environments.toy_text.frozen_lake train --seed 0 --tensorboard --tensorboard-run-name first-run
+uv run --locked --extra tensorboard python -m environments.toy_text.frozen_lake benchmark --seeds 0 1 2 --tensorboard
+uv run --locked --extra tensorboard tensorboard --logdir runs/frozen_lake/tensorboard
+```
+
+Open the local URL printed by TensorBoard. Keep `--extra tensorboard` on subsequent `uv run` commands: uv can remove unselected optional dependencies. The viewer may report that TensorFlow is absent; scalar and text summaries work with this reduced feature set.
+
+`--tensorboard-log-dir` changes the base event directory, which defaults to `runs/frozen_lake/tensorboard`. Each invocation reserves a fresh root before training:
+
+```text
+runs/frozen_lake/tensorboard/
+  train/first-run/seed-0/events.out.tfevents.*
+  benchmark/<generated-UUID>/seed-0/events.out.tfevents.*
+                             seed-1/events.out.tfevents.*
+                             seed-2/events.out.tfevents.*
+```
+
+Without `--tensorboard-run-name`, each invocation gets a new UUID; a benchmark shares that name across its seeds. Explicit names must be unused, contain 1-100 ASCII letters, digits, dots, underscores or hyphens, start with a letter or digit, and cannot end in a dot or use a Windows reserved filename. An existing run root is rejected before training, keeping repeated experiments separate. Both directory and name options require `--tensorboard`. Custom log paths should stay under an ignored directory such as `runs/`.
+
+Every completed episode emits these scalar tags at the same **1-based episode number** used in `training.csv`:
+
+| Tag | Value |
+| --- | --- |
+| `episode/return` | Sum of rewards in the episode |
+| `episode/length` | Number of environment steps |
+| `episode/epsilon` | Exploration probability used for that episode |
+| `episode/success` | 1 if the goal was reached, otherwise 0 |
+| `episode/terminated` | 1 if the underlying task ended, otherwise 0 |
+| `episode/truncated` | 1 if the time limit ended the rollout, otherwise 0 |
+
+Termination and truncation can both be true; only termination disables Q-learning bootstrapping. The Text dashboard's `run/config` summary at step 0 records the command, run name, environment, full training configuration, software/platform versions, and benchmark seeds/evaluation inputs where relevant. Conventional Q-table, CSV and JSON artifacts remain unchanged. Evaluation and policy playback do not write events. Writers flush and close when training finishes or raises an exception; incomplete episodes have no scalar record. TensorBoard stores scalar values as float32, so readback can differ from CSV values by floating-point rounding.
+
+To inspect saved events without a browser:
+
+```sh
+uv run --locked --extra tensorboard tensorboard --inspect --logdir runs/frozen_lake/tensorboard
+```
+
+Regression tests read events with `tensorboard.backend.event_processing.event_accumulator.EventAccumulator`, using `Scalars(tag)` for episode records and `Tensors("run/config")` for JSON metadata. They verify emitted values and steps, independent seed/repeat streams, failure cleanup, and unchanged learning results. Headless event readback does not verify the browser UI or interactive graphics. The optional native fast data loader is not required on Windows or Apple Silicon; use `--load_fast=false` when explicitly selecting the portable loader.
+
 ## Watch the policy
 
 ```sh
@@ -58,4 +104,8 @@ The window replays the greedy policy at two actions per second, pauses at the en
 
 ```sh
 uv run --locked python -m unittest discover -s tests -v
+uv run --locked --extra tensorboard python -m unittest discover -s tests -v
+uv run --locked --group typecheck --extra tensorboard python -m mypy environments/toy_text/frozen_lake tests
 ```
+
+The first command checks the base installation, where event integration tests skip if TensorBoard is absent. The second executes those tests with the locked extra. The nondefault `typecheck` group supplies mypy for the FrozenLake package and tests; TensorBoard itself has no type declarations, so that external library boundary is not statically checked. CI runs these checks on Ubuntu x86-64, Windows x86-64 and Apple Silicon macOS.

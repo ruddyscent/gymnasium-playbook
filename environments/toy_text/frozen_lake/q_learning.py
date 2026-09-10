@@ -1,6 +1,7 @@
 """The learning algorithm, separate from command-line and file handling."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import TypedDict, cast
 
 import gymnasium as gym
@@ -19,6 +20,8 @@ TrainingEpisode = TypedDict("TrainingEpisode", {
     "terminated": bool,
     "truncated": bool,
 })
+
+type EpisodeSink = Callable[[TrainingEpisode], None]
 
 
 class EvaluationResult(TypedDict):
@@ -100,7 +103,9 @@ def update_q_value(
     q_table[state, action] += learning_rate * (target - prediction)
 
 
-def train(config: TrainingConfig) -> tuple[QTable, list[TrainingEpisode]]:
+def train(
+    config: TrainingConfig, episode_sink: EpisodeSink | None = None,
+) -> tuple[QTable, list[TrainingEpisode]]:
     """Return the learned Q-table and one record per training episode."""
     rng = np.random.default_rng(config.seed)
     history: list[TrainingEpisode] = []
@@ -140,6 +145,8 @@ def train(config: TrainingConfig) -> tuple[QTable, list[TrainingEpisode]]:
                 "terminated": bool(terminated),
                 "truncated": bool(truncated),
             })
+            if episode_sink is not None:
+                episode_sink(history[-1].copy())
     return q_table, history
 
 
