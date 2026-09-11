@@ -15,6 +15,7 @@ import numpy as np
 from .q_learning import (
     EvaluationResult, QTable, TrainingConfig, TrainingEpisode, evaluate, train,
 )
+from .model_loading import LoadedPolicy, load_hub_policy, load_local_policy
 from .tensorboard_logging import episode_writer, reserve_run
 
 
@@ -162,6 +163,32 @@ def benchmark(args: argparse.Namespace) -> None:
     })
 
 
+def load_selected_policy(args: argparse.Namespace, local_limit: int) -> LoadedPolicy | None:
+    """Load the policy requested by a command, preserving local-file behavior."""
+    if args.random:
+        if args.hub_revision is not None or args.hub_seed is not None:
+            raise ValueError("--hub-revision and --hub-seed require --hub-repo")
+        return None
+    if args.q_table is not None:
+        if args.hub_revision is not None or args.hub_seed is not None:
+            raise ValueError("--hub-revision and --hub-seed require --hub-repo")
+        return load_local_policy(args.q_table, local_limit)
+    if args.hub_revision is None or args.hub_seed is None:
+        raise ValueError("--hub-repo requires --hub-revision and --hub-seed")
+    return load_hub_policy(args.hub_repo, args.hub_revision, args.hub_seed)
+
+
+def add_policy_options(parser: argparse.ArgumentParser) -> None:
+    policy = parser.add_mutually_exclusive_group(required=True)
+    policy.add_argument("--q-table", type=Path)
+    policy.add_argument("--random", action="store_true")
+    policy.add_argument("--hub-repo", help="Hugging Face repository (owner/name)")
+    parser.add_argument(
+        "--hub-revision", help="Immutable 40-character Git commit SHA for --hub-repo"
+    )
+    parser.add_argument("--hub-seed", type=int, help="Training seed directory for --hub-repo")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -173,12 +200,13 @@ def main() -> None:
     training.add_argument("--output-dir", type=Path)
 
     evaluation = commands.add_parser("evaluate", help="Evaluate without learning")
-    policy = evaluation.add_mutually_exclusive_group(required=True)
-    policy.add_argument("--q-table", type=Path)
-    policy.add_argument("--random", action="store_true")
+    add_policy_options(evaluation)
     evaluation.add_argument("--episodes", type=int, default=1_000)
     evaluation.add_argument("--seed", type=int, default=10_000)
-    evaluation.add_argument("--max-episode-steps", type=int, default=100)
+    evaluation.add_argument(
+        "--max-episode-steps", type=int,
+        help="Local Q-table/random limit (default: 100; Hub models use saved metadata)",
+    )
     evaluation.add_argument("--output", type=Path, help="Optionally save evaluation JSON")
 
     comparison = commands.add_parser("benchmark", help="Compare learning with random play")
@@ -192,9 +220,7 @@ def main() -> None:
     )
 
     viewer = commands.add_parser("watch", help="Replay a policy in a window until closed")
-    watched_policy = viewer.add_mutually_exclusive_group(required=True)
-    watched_policy.add_argument("--q-table", type=Path)
-    watched_policy.add_argument("--random", action="store_true")
+    add_policy_options(viewer)
     viewer.add_argument("--seed", type=int, default=10_000)
     viewer.add_argument("--fps", type=int, default=2, help="Actions per second (1-30)")
 
@@ -207,20 +233,43 @@ def main() -> None:
             save_training(output_dir, config, q_table, history)
             print(f"Saved Q-table and training records to {output_dir}")
         elif args.command == "evaluate":
-            table = None if args.random else np.load(args.q_table, allow_pickle=False)
+            local_limit = (
+                TrainingConfig().max_episode_steps
+                if args.max_episode_steps is None
+                else args.max_episode_steps
+            )
+            if args.hub_repo is not None and args.max_episode_steps is not None:
+                raise ValueError("Hub models use training.max_episode_steps from config.json")
+            policy = load_selected_policy(args, local_limit)
             result = {
-                "policy": "random" if args.random else "q_learning",
+                "policy": "random" if policy is None else "q_learning",
                 "versions": versions(),
-                **evaluate(table, args.episodes, args.seed, args.max_episode_steps),
+                **evaluate(
+                    None if policy is None else policy.q_table,
+                    args.episodes,
+                    args.seed,
+                    local_limit if policy is None else policy.max_episode_steps,
+                ),
             }
+            if args.hub_repo is not None:
+                result["provenance"] = {
+                    "repo_id": args.hub_repo,
+                    "revision": args.hub_revision,
+                    "training_seed": args.hub_seed,
+                }
             if args.output:
                 write_json(args.output, result)
             print(json.dumps(result, indent=2, allow_nan=False))
         elif args.command == "watch":
             from .viewer import watch
 
-            table = None if args.random else np.load(args.q_table, allow_pickle=False)
-            watch(table, args.seed, args.fps)
+            policy = load_selected_policy(args, TrainingConfig().max_episode_steps)
+            watch(
+                None if policy is None else policy.q_table,
+                args.seed,
+                args.fps,
+                TrainingConfig().max_episode_steps if policy is None else policy.max_episode_steps,
+            )
         else:
             benchmark(args)
     except (ValueError, OSError) as error:

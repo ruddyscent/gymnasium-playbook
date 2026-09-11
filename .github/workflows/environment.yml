@@ -32,8 +32,8 @@ jobs:
       - name: Test FrozenLake learning semantics
         run: uv run --locked python -m unittest discover -s tests -v
       - name: Test TensorBoard event logging
-        run: uv run --locked --extra tensorboard python -m unittest discover -s tests -v
+        run: uv run --locked --extra tensorboard --extra hub python -m unittest discover -s tests -v
       - name: Check FrozenLake types
-        run: uv run --locked --group typecheck --extra tensorboard python -m mypy environments/toy_text/frozen_lake tests
+        run: uv run --locked --group typecheck --extra tensorboard --extra hub python -m mypy environments/toy_text/frozen_lake tests
       - name: Check all environment families
         run: uv run --locked --all-extras python scripts/check_environments.py --all

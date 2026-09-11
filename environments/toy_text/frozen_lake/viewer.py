@@ -4,22 +4,27 @@ import gymnasium as gym
 import numpy as np
 import pygame
 
-from .q_learning import QTable
+from .q_learning import QTable, validate_q_table
 
 
-def watch(q_table: QTable | None, seed: int = 10_000, fps: int = 2) -> None:
-    if seed < 0 or not 1 <= fps <= 30:
-        raise ValueError("Require a nonnegative seed and 1 <= fps <= 30")
-    if q_table is not None and (
-        q_table.shape != (16, 4) or not np.isfinite(q_table).all()
-    ):
-        raise ValueError("Expected a finite 16-by-4 Q-table")
+def watch(
+    q_table: QTable | None,
+    seed: int = 10_000,
+    fps: int = 2,
+    max_episode_steps: int = 100,
+) -> None:
+    if seed < 0 or not 1 <= fps <= 30 or max_episode_steps < 1:
+        raise ValueError(
+            "Require a nonnegative seed, 1 <= fps <= 30, and a positive episode limit"
+        )
+    if q_table is not None:
+        q_table = validate_q_table(q_table)
     rng = np.random.default_rng(seed)
     pygame.init()
     try:
         with gym.make(
             "FrozenLake-v1", map_name="4x4", is_slippery=False,
-            max_episode_steps=100, render_mode="rgb_array",
+            max_episode_steps=max_episode_steps, render_mode="rgb_array",
         ) as env:
             state, _ = env.reset(seed=seed)
             frame = env.render()

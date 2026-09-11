@@ -26,6 +26,32 @@ uv run --locked python -m environments.toy_text.frozen_lake evaluate --q-table r
 uv run --locked python -m environments.toy_text.frozen_lake evaluate --random --episodes 1000 --seed 10000
 ```
 
+### Evaluate a published policy
+
+Hugging Face Hub support is optional. Install the locked `hub` extra, then select
+both a training seed and an immutable 40-character commit SHA. The commands use
+the Hub cache; the first run downloads `seed-0/q_table.npy` and its matching
+`seed-0/config.json`, and later runs can reuse the cached files.
+`--hub-repo` must use the exact nonempty `owner/name` form.
+
+```sh
+uv sync --locked --extra hub
+uv run --locked --extra hub python -m environments.toy_text.frozen_lake evaluate --hub-repo ruddyscent/gymnasium-playbook-frozenlake-q-learning --hub-revision b221cf51b99a9ba07cb9d3de65430acdb94162a7 --hub-seed 0 --episodes 1000 --seed 10000
+uv run --locked --extra hub python -m environments.toy_text.frozen_lake watch --hub-repo ruddyscent/gymnasium-playbook-frozenlake-q-learning --hub-revision b221cf51b99a9ba07cb9d3de65430acdb94162a7 --hub-seed 0
+```
+
+Hub policies use the positive `training.max_episode_steps` stored in their
+`config.json`; `watch` and `evaluate` apply it automatically. The loader rejects
+missing or malformed metadata, non-finite or non-numeric tables, and any
+environment other than deterministic 4x4 `FrozenLake-v1`. It also requires the
+saved nonnegative `training.seed` to match `--hub-seed`, so the table and
+configuration cannot be paired across training runs. Hub evaluation JSON includes
+a `provenance` object with the repository ID, immutable revision, and selected
+training seed. For a local
+`--q-table`, the existing 100-step default remains available and
+`--max-episode-steps` can select a different limit. `--q-table`, `--random`, and
+`--hub-repo` are mutually exclusive.
+
 Run the three-seed comparison:
 
 ```sh
@@ -104,8 +130,8 @@ The window replays the greedy policy at two actions per second, pauses at the en
 
 ```sh
 uv run --locked python -m unittest discover -s tests -v
-uv run --locked --extra tensorboard python -m unittest discover -s tests -v
-uv run --locked --group typecheck --extra tensorboard python -m mypy environments/toy_text/frozen_lake tests
+uv run --locked --extra tensorboard --extra hub python -m unittest discover -s tests -v
+uv run --locked --group typecheck --extra tensorboard --extra hub python -m mypy environments/toy_text/frozen_lake tests
 ```
 
 The first command checks the base installation, where event integration tests skip if TensorBoard is absent. The second executes those tests with the locked extra. The nondefault `typecheck` group supplies mypy for the FrozenLake package and tests; TensorBoard itself has no type declarations, so that external library boundary is not statically checked. CI runs these checks on Ubuntu x86-64, Windows x86-64 and Apple Silicon macOS.
