@@ -66,6 +66,21 @@ def make_env(max_episode_steps: int = 100) -> gym.Env[int, int]:
     )
 
 
+def validate_q_table(q_table: object) -> QTable:
+    """Return a finite real-valued table with one value per state-action pair."""
+    if not isinstance(q_table, np.ndarray) or q_table.shape != (16, 4):
+        raise ValueError("Expected a 16-by-4 Q-table")
+    if (
+        not np.issubdtype(q_table.dtype, np.number)
+        or np.issubdtype(q_table.dtype, np.complexfloating)
+    ):
+        raise ValueError("Expected a real numeric 16-by-4 Q-table")
+    table = q_table.astype(np.float64, copy=False)
+    if not np.isfinite(table).all():
+        raise ValueError("Expected a finite 16-by-4 Q-table")
+    return table
+
+
 def epsilon_greedy(
     q_values: QTable, epsilon: float, rng: np.random.Generator
 ) -> int:
@@ -160,8 +175,7 @@ def evaluate(
     if episodes < 1 or seed < 0 or max_episode_steps < 1:
         raise ValueError("Seed must be nonnegative; episode counts and limits positive")
     if q_table is not None:
-        if q_table.shape != (16, 4) or not np.isfinite(q_table).all():
-            raise ValueError("Expected a finite 16-by-4 Q-table")
+        q_table = validate_q_table(q_table)
 
     rng = np.random.default_rng(seed)
     successes = 0
