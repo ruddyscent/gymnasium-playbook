@@ -62,6 +62,55 @@ See the [learning roadmap](docs/learning-roadmap.md) for the full sequence, sugg
 
 The repository roadmap is the canonical public guide. Track concrete implementation work in [Issues](https://github.com/ruddyscent/gymnasium-playbook/issues), starting with [tabular Q-learning for FrozenLake](https://github.com/ruddyscent/gymnasium-playbook/issues/2).
 
+## Codex development setup
+
+The project defaults to **GPT-6 Astra (`gpt-6-astra`) with `high` reasoning
+effort** through [`.codex/config.toml`](.codex/config.toml). `high` is the chosen
+initial project baseline, not a claim that it is the model's recommended default
+or a measured improvement. [AGENTS.md](AGENTS.md) applies the same baseline to
+issue/PR management while retaining task-based worker selection and independent
+review.
+
+Use a current [Codex client](https://developers.openai.com/codex/quickstart/)
+with access to GPT-6 Astra. Open this checkout or its task worktree as the working
+directory, review and trust the project, then start a fresh session. Trusted
+project configuration overrides user defaults; explicit CLI or session model
+selections can override the project. Existing sessions are not switched by editing
+these files. See [configuration precedence](https://developers.openai.com/codex/config-basic/).
+
+From the repository root, start the CLI without a model override:
+
+```sh
+codex
+```
+
+In that session, use `/status` and `/model` to inspect the selected model and
+reasoning effort; expect `gpt-6-astra` and `high`. In the desktop app, inspect
+the task's model and reasoning selector and select those values if an existing
+task retains another selection. Verify both values before calling the migration
+active. For automated inspection, the [app-server `config/read`
+API](https://developers.openai.com/codex/app-server/) reports the effective
+configuration and its layers; this confirms configuration loading, not a completed
+model response or the settings of an already-running task.
+
+To try the global orchestrator's Sol/high baseline in a new CLI session:
+
+```sh
+codex --model gpt-5.6-sol --config 'model_reasoning_effort="high"'
+```
+
+Explicit task instructions should identify that session as a comparison trial so
+the project policy does not ask it to return to Astra. To revert the shared
+baseline, remove the model and effort entries from `.codex/config.toml` and the
+corresponding model policy in `AGENTS.md`, then verify the inherited settings in a
+fresh session. Those settings depend on each host's configuration; Sol/high is
+not necessarily its previous runtime selection. No user-wide configuration
+change is required.
+Compare real development tasks before changing the baseline: record verified
+model/effort, task and revision, tests, completion quality, rework, elapsed time,
+and available usage in the tracking issue. Configuration validation and the
+existing regression checks alone do not establish a quality or cost improvement.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

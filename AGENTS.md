@@ -1,5 +1,22 @@
 # Project development guidelines
 
+## Codex model policy
+
+- Use GPT-6 Astra (`gpt-6-astra`) with `high` reasoning effort as this
+  project's default development and issue/PR management baseline. This
+  project-specific choice overrides the global orchestrator's Sol/high manager
+  default, including its instruction to return to that default after escalation.
+- Continue to follow the orchestrator's delegation, independent review, and
+  verification requirements. Choose worker models and effort by task difficulty
+  and evidence; the Astra baseline does not require every worker to use Astra.
+- Verify the actual model and reasoning effort exposed by the running client.
+  `.codex/config.toml` and these instructions set defaults; they do not change an
+  existing session. Report unavailable or conflicting runtime settings before
+  claiming that the project baseline is active.
+- Evaluate changes to this baseline using comparable tasks, completion quality,
+  rework, elapsed time, and usage. Record results in the issue, and keep `high`
+  as the initial project baseline until evidence supports a different choice.
+
 ## Educational implementations
 
 - Make core equations and algorithm steps explicit. Avoid unnecessary abstraction
