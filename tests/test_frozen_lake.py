@@ -1,79 +1,119 @@
 """Regression tests for the learning semantics, not a performance benchmark."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from typing import Any
 
 import numpy as np
 
 from environments.toy_text.frozen_lake.q_learning import (
+    QTable,
     TrainingConfig,
     TrainingEpisode,
-    epsilon_greedy,
     evaluate,
     make_env,
-    q_learning_target,
     train,
-    update_q_value,
 )
 
 
+def train_from_table(
+    table: QTable,
+    config: TrainingConfig,
+    actions: list[int] | None = None,
+) -> tuple[QTable, list[TrainingEpisode]]:
+    """Start the real training loop with known values and optional forced actions."""
+    # Replace NumPy only in the learning module; Gymnasium keeps its own RNG.
+    with patch("environments.toy_text.frozen_lake.q_learning.np", wraps=np) as numpy:
+        numpy.float64 = np.float64
+        numpy.zeros.return_value = table.copy()
+        if actions is not None:
+            rng = Mock(wraps=np.random.default_rng(config.seed))
+            rng.random.return_value = 0.0
+            rng.integers.side_effect = actions
+            numpy.random.default_rng.return_value = rng
+        return train(config)
+
+
 class LearningTests(unittest.TestCase):
-    def test_nonterminal_target_includes_discounted_future_value(self) -> None:
-        self.assertAlmostEqual(q_learning_target(1.0, 4.0, False, 0.9), 4.6)
-
-    def test_terminal_target_ignores_even_a_large_next_value(self) -> None:
-        self.assertEqual(q_learning_target(1.0, 100.0, True, 0.9), 1.0)
-
-    def test_update_interpolates_one_entry(self) -> None:
+    def test_nonterminal_update_includes_discounted_future_value(self) -> None:
         table = np.zeros((16, 4))
         table[0, 2] = 2.0
         table[1, 0] = 4.0
         expected = table.copy()
-        expected[0, 2] = 2.65  # 2 + 0.25 * ((1 + 0.9 * 4) - 2)
-        update_q_value(table, 0, 2, 1.0, 1, False, 0.25, 0.9)
-        np.testing.assert_allclose(table, expected)
+        expected[0, 2] = 2.4  # 2 + 0.25 * ((0 + 0.9 * 4) - 2)
+        actual, history = train_from_table(
+            table,
+            TrainingConfig(episodes=1, max_episode_steps=1, learning_rate=0.25, discount=0.9),
+            [2],
+        )
+        np.testing.assert_allclose(actual, expected)
+        self.assertFalse(history[0]["terminated"])
+        self.assertTrue(history[0]["truncated"])
 
     def test_real_time_limit_still_bootstraps(self) -> None:
-        with make_env(max_episode_steps=1) as env:
-            state, _ = env.reset(seed=0)
-            next_state, reward, terminated, truncated, _ = env.step(2)
-        self.assertEqual(next_state, 1)
-        self.assertFalse(terminated)
-        self.assertTrue(truncated)
         table = np.zeros((16, 4))
-        table[next_state, 0] = 4.0
-        update_q_value(table, state, 2, reward, next_state, terminated, 1.0, 0.9)
-        self.assertAlmostEqual(table[state, 2], 3.6)
+        table[1, 0] = 4.0
+        actual, history = train_from_table(
+            table,
+            TrainingConfig(episodes=1, max_episode_steps=1, learning_rate=1.0, discount=0.9),
+            [2],
+        )
+        self.assertAlmostEqual(actual[0, 2], 3.6)
+        self.assertFalse(history[0]["terminated"])
+        self.assertTrue(history[0]["truncated"])
 
-    def test_goal_on_time_limit_does_not_bootstrap(self) -> None:
-        with make_env(max_episode_steps=6) as env:
-            env.reset(seed=0)
-            for action in [1, 1, 2, 1, 2, 2]:
-                _, reward, terminated, truncated, _ = env.step(action)
-        self.assertTrue(terminated)
-        self.assertTrue(truncated)
-        self.assertEqual(q_learning_target(reward, 100.0, terminated, 0.99), 1.0)
+    def test_terminal_target_ignores_even_a_large_next_value(self) -> None:
+        for limit in (6, 100):
+            with self.subTest(max_episode_steps=limit):
+                table = np.zeros((16, 4))
+                table[15] = 100.0
+                actual, history = train_from_table(
+                    table,
+                    TrainingConfig(episodes=1, max_episode_steps=limit, learning_rate=1.0),
+                    [1, 1, 2, 1, 2, 2],
+                )
+                self.assertEqual(actual[14, 2], 1.0)
+                self.assertTrue(history[0]["terminated"])
+                self.assertEqual(history[0]["truncated"], limit == 6)
 
     def test_hole_terminates_with_zero_target(self) -> None:
-        with make_env() as env:
-            env.reset(seed=0)
-            env.step(2)
-            _, reward, terminated, _, _ = env.step(1)
-        self.assertTrue(terminated)
-        self.assertEqual(q_learning_target(reward, 100.0, terminated, 0.99), 0.0)
+        table = np.zeros((16, 4))
+        table[5] = 100.0
+        table[1, 1] = 2.0
+        actual, history = train_from_table(
+            table, TrainingConfig(episodes=1, learning_rate=1.0), [2, 1],
+        )
+        self.assertEqual(actual[1, 1], 0.0)
+        self.assertTrue(history[0]["terminated"])
+        self.assertEqual(history[0]["success"], 0)
 
-    def test_exploitation_breaks_ties_without_choosing_worse_actions(self) -> None:
-        rng = np.random.default_rng(42)
-        actions = {epsilon_greedy(np.array([0.0, 2.0, 2.0, 0.0]), 0.0, rng)
-                   for _ in range(100)}
-        self.assertEqual(actions, {1, 2})
+    def test_exploitation_chooses_the_first_best_action(self) -> None:
+        table = np.zeros((16, 4))
+        table[0] = [0.0, 2.0, 2.0, 0.0]
+        # Keep the best values tied after updates to check the fixed tie rule.
+        table[1, 0] = table[4, 0] = 2.0
+        with make_env(max_episode_steps=1) as env, patch(
+            "environments.toy_text.frozen_lake.q_learning.make_env", return_value=env,
+        ), patch.object(env, "step", wraps=env.step) as step:
+            train_from_table(
+                table,
+                TrainingConfig(seed=42, episodes=100, max_episode_steps=1,
+                               epsilon_start=0.0, epsilon_end=0.0, discount=1.0),
+            )
+        self.assertEqual({call.args[0] for call in step.call_args_list}, {1})
 
     def test_full_exploration_can_choose_every_action(self) -> None:
-        rng = np.random.default_rng(42)
-        actions = {epsilon_greedy(np.array([10.0, 0.0, 0.0, 0.0]), 1.0, rng)
-                   for _ in range(100)}
-        self.assertEqual(actions, {0, 1, 2, 3})
+        table = np.zeros((16, 4))
+        table[0, 0] = 10.0
+        with make_env(max_episode_steps=1) as env, patch(
+            "environments.toy_text.frozen_lake.q_learning.make_env", return_value=env,
+        ), patch.object(env, "step", wraps=env.step) as step:
+            train_from_table(
+                table,
+                TrainingConfig(seed=42, episodes=100, max_episode_steps=1,
+                               epsilon_start=1.0, epsilon_end=1.0),
+            )
+        self.assertEqual({call.args[0] for call in step.call_args_list}, {0, 1, 2, 3})
 
     def test_training_is_reproducible_and_honors_time_limit(self) -> None:
         config = TrainingConfig(seed=7, episodes=20, max_episode_steps=1)
@@ -110,10 +150,12 @@ class LearningTests(unittest.TestCase):
     def test_episode_sink_preserves_goal_and_time_limit_flags(self) -> None:
         observed: list[TrainingEpisode] = []
         config = TrainingConfig(episodes=1, max_episode_steps=6)
-        with patch(
-            "environments.toy_text.frozen_lake.q_learning.epsilon_greedy",
-            side_effect=[1, 1, 2, 1, 2, 2],
-        ):
+        rng = Mock(wraps=np.random.default_rng(config.seed))
+        rng.random.return_value = 0.0
+        rng.integers.side_effect = [1, 1, 2, 1, 2, 2]
+        with patch("environments.toy_text.frozen_lake.q_learning.np", wraps=np) as numpy:
+            numpy.float64 = np.float64
+            numpy.random.default_rng.return_value = rng
             _, history = train(config, episode_sink=observed.append)
         self.assertEqual(observed, history)
         self.assertEqual(observed[0]["episode"], 1)

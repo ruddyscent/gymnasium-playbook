@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from collections.abc import Callable
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import gymnasium as gym
 import numpy as np
@@ -81,55 +81,16 @@ def validate_q_table(q_table: object) -> QTable:
     return table
 
 
-def epsilon_greedy(
-    q_values: QTable, epsilon: float, rng: np.random.Generator
-) -> int:
-    """Explore uniformly; otherwise break ties uniformly among the best actions."""
-    if rng.random() < epsilon:
-        return int(rng.integers(len(q_values)))
-    best_actions = np.flatnonzero(q_values == q_values.max())
-    # Initially every value is zero. Always choosing argmax would favor LEFT.
-    return int(rng.choice(best_actions))
-
-
-def q_learning_target(
-    reward: float, next_value: float, terminated: bool, discount: float
-) -> float:
-    """Bootstrap unless the underlying task ended, even at a time limit."""
-    if terminated:
-        return float(reward)
-    return float(reward + discount * next_value)
-
-
-def update_q_value(
-    q_table: QTable,
-    state: int,
-    action: int,
-    reward: float,
-    next_state: int,
-    terminated: bool,
-    learning_rate: float,
-    discount: float,
-) -> None:
-    target = q_learning_target(
-        reward, float(q_table[next_state].max()), terminated, discount
-    )
-    prediction = q_table[state, action]
-    q_table[state, action] += learning_rate * (target - prediction)
-
-
 def train(
     config: TrainingConfig, episode_sink: EpisodeSink | None = None,
 ) -> tuple[QTable, list[TrainingEpisode]]:
     """Return the learned Q-table and one record per training episode."""
     rng = np.random.default_rng(config.seed)
+    # The fixed 4x4 map has 16 states and 4 actions: LEFT, DOWN, RIGHT, UP.
+    q_table: QTable = np.zeros((16, 4), dtype=np.float64)
     history: list[TrainingEpisode] = []
 
     with make_env(config.max_episode_steps) as env:
-        q_table: QTable = np.zeros((
-            cast(gym.spaces.Discrete, env.observation_space).n,
-            cast(gym.spaces.Discrete, env.action_space).n,
-        ), dtype=np.float64)
         for episode in range(config.episodes):
             state, _ = env.reset(seed=config.seed if episode == 0 else None)
             epsilon = max(
@@ -137,16 +98,20 @@ def train(
                 config.epsilon_start * config.epsilon_decay**episode,
             )
             episode_return = 0.0
-            length = 0
-            while True:
-                action = epsilon_greedy(q_table[state], epsilon, rng)
+            for length in range(1, config.max_episode_steps + 1):
+                if rng.random() < epsilon:
+                    action = int(rng.integers(4))
+                else:
+                    action = int(np.argmax(q_table[state]))
+
                 next_state, reward, terminated, truncated, _ = env.step(action)
-                update_q_value(
-                    q_table, state, action, float(reward), next_state, terminated,
-                    config.learning_rate, config.discount,
+                target = float(reward)
+                if not terminated:
+                    target += config.discount * float(q_table[next_state].max())
+                q_table[state, action] += config.learning_rate * (
+                    target - q_table[state, action]
                 )
                 episode_return += float(reward)
-                length += 1
                 state = next_state
                 # Both flags end the rollout; only terminated disables bootstrapping.
                 if terminated or truncated:
@@ -188,7 +153,7 @@ def evaluate(
             length = 0
             while True:
                 if q_table is None:
-                    action = int(rng.integers(int(cast(gym.spaces.Discrete, env.action_space).n)))
+                    action = int(rng.integers(4))
                 else:
                     # A fixed tie rule makes greedy evaluation deterministic.
                     action = int(np.argmax(q_table[state]))

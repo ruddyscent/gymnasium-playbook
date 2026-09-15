@@ -4,6 +4,27 @@ Implementation for [issue #2](https://github.com/ruddyscent/gymnasium-playbook/i
 
 The detailed explanation and measured results are maintained separately in `posts/frozen-lake-q-learning.md` on the `blog` branch.
 
+## Read the code
+
+Start with `train()` in [q_learning.py](q_learning.py). It uses a fixed 16-by-4
+table and two loops: one over episodes and one over steps. Read each step in order:
+
+1. Choose a random action with probability $\epsilon$; otherwise use `argmax`
+   to choose the first action with the largest Q-value.
+2. Take the action with `env.step(action)`.
+3. Compute the target and update that state-action entry directly:
+
+   $$y = \begin{cases}r & \text{if terminated} \\ r + \gamma\max_{a'}Q(s',a') & \text{otherwise}\end{cases}$$
+
+   $$Q(s,a) \leftarrow Q(s,a) + \alpha\left(y - Q(s,a)\right)$$
+
+4. Move to the next state. Stop the episode on `terminated` or `truncated`.
+   A time limit alone still includes the next state's value in the target.
+
+`evaluate()` reads the table without updating it. The CLI and artifact handling
+live in `__main__.py`; playback, TensorBoard logging, and model loading have their
+own modules. `TrainingConfig` holds the hyperparameters used by the commands.
+
 ## Run the example
 
 Run all commands from the repository root. They work without shell-specific activation or line continuation. Use the pinned Python and dependencies from the root README:
